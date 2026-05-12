@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -31,8 +29,8 @@ func Status(args []string) error {
 		hostedDomains, _ = hosts.ListInstalled()
 	}
 
-	// 2. launchd service state.
-	sbState := launchctlPrint()
+	// 2. Platform service state (launchd / Windows Service).
+	sbState := serviceStatusLine()
 
 	// 3. Clash API liveness.
 	clashAlive, clashSummary := clashStatus()
@@ -73,18 +71,19 @@ func boolTag(ok bool, trueMsg, falseMsg string) string {
 	return "✗ " + falseMsg
 }
 
-func launchctlPrint() string {
-	out, err := exec.Command("launchctl", "print", "system/"+ServiceLabel).CombinedOutput()
-	if err != nil {
+// serviceStatusLine condenses the platform-specific ServiceStatus() blob
+// into a single user-facing line.
+func serviceStatusLine() string {
+	text := ServiceStatus()
+	switch {
+	case text == "":
 		return "✗ not loaded"
-	}
-	text := string(out)
-	// Look for "state = running" or "state = waiting".
-	if strings.Contains(text, "state = running") {
+	case strings.Contains(text, "state = running"), strings.Contains(text, "state=Running"):
 		return "✓ running"
-	}
-	if strings.Contains(text, "state = waiting") {
+	case strings.Contains(text, "state = waiting"):
 		return "⚠ waiting (will restart on demand)"
+	case strings.Contains(text, "state=Stopped"), strings.Contains(text, "not installed"):
+		return "✗ not running"
 	}
 	return "⚠ loaded (unknown state)"
 }
@@ -121,5 +120,3 @@ func humanBytes(n uint64) string {
 	}
 }
 
-// silence unused import warning on os in build modes without its use
-var _ = os.Getenv

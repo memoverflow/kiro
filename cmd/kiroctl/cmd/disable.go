@@ -3,34 +3,28 @@ package cmd
 import (
 	"flag"
 	"fmt"
-	"os"
-	"os/exec"
 
 	"github.com/xrre/kiro-proxy/pkg/hosts"
 )
 
-// Disable restores /etc/hosts and stops the sing-box service.
+// Disable restores the hosts file and stops the platform service. Cross-
+// platform: launchd on macOS, Windows Service on Windows.
 func Disable(args []string) error {
 	fs := flag.NewFlagSet("disable", flag.ExitOnError)
 	fs.Parse(args)
 
-	mustSudo()
+	mustElevate()
 
-	// Unload launchd service, ignore errors (may not be loaded).
-	if _, err := os.Stat(PlistPath); err == nil {
-		_ = exec.Command("launchctl", "bootout", "system", PlistPath).Run()
-	}
+	_ = StopService()
 
 	if err := hosts.Uninstall(); err != nil {
 		return fmt.Errorf("restore hosts: %w", err)
 	}
 
-	// DNS cache flush so Kiro immediately sees real IPs again.
-	_ = exec.Command("dscacheutil", "-flushcache").Run()
-	_ = exec.Command("killall", "-HUP", "mDNSResponder").Run()
+	FlushDNS()
 
 	fmt.Println("✓ kiroctl disabled")
-	fmt.Println("  /etc/hosts restored; sing-box stopped")
+	fmt.Println("  hosts restored; sing-box stopped")
 	fmt.Println("  Kiro will now connect directly (be careful with IP geofencing)")
 	return nil
 }

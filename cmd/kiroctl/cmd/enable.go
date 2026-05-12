@@ -4,46 +4,50 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 
 	"github.com/xrre/kiro-proxy/pkg/config"
 	"github.com/xrre/kiro-proxy/pkg/hosts"
 	"github.com/xrre/kiro-proxy/pkg/singbox"
 )
 
-// Enable locks Kiro domains to localhost and starts the local sing-box.
+// Enable locks Kiro domains to localhost and starts the platform service.
+// Cross-platform: launchd on macOS, Windows Service on Windows.
 func Enable(args []string) error {
 	fs := flag.NewFlagSet("enable", flag.ExitOnError)
-	envPath := fs.String("env", EnvFilePath(), "path to client env file")
+	envPath := fs.String("env", EnvFilePath(), "path to legacy env file (fallback)")
 	fs.Parse(args)
 
-	// Step 1: load deployment (under user creds, no sudo yet).
+	// Step 1: load deployment before elevation so config errors surface as
+	// the current user, not in a UAC-spawned window the user can't see.
 	dep, err := config.LoadDeployment(*envPath)
 	if err != nil {
 		return fmt.Errorf("load deployment: %w", err)
 	}
 
-	// Step 2: re-exec under sudo for the privileged bits.
-	mustSudo()
-	// from here on we are root.
+	// Step 2: elevate (sudo on mac, UAC on windows).
+	mustElevate()
 
-	// Step 3: resolve sing-box binary.
+	// Step 3: resolve sing-box binary (extracts embedded copy if first run).
 	sbPath, err := SingBoxPath()
 	if err != nil {
 		return err
 	}
 
-	// Step 4: make sure our state directory exists.
+	// Step 4: ensure state directory + log directory exist.
 	if err := os.MkdirAll(WorkDirSystem, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", WorkDirSystem, err)
 	}
+	if err := os.MkdirAll(filepath.Dir(LogOut), 0o755); err != nil {
+		return fmt.Errorf("mkdir logs: %w", err)
+	}
 
-	// Step 5: generate sing-box config.
+	// Step 5: render sing-box config.
 	cfgBytes, err := singbox.Generate(singbox.Options{
 		Deployment: dep,
 		Domains:    config.KiroDomains,
 		SocksAddr:  "127.0.0.1:1080",
-		CachePath:  WorkDirSystem + "/cache.db",
+		CachePath:  filepath.Join(WorkDirSystem, "cache.db"),
 		ClashAPI:   "127.0.0.1:9090",
 		UIDir:      "ui",
 	})
@@ -54,71 +58,31 @@ func Enable(args []string) error {
 		return fmt.Errorf("write sing-box config: %w", err)
 	}
 
-	// Step 6: write launchd plist (idempotent).
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("find kiroctl binary: %w", err)
-	}
-	if err := os.WriteFile(PlistPath, []byte(renderPlist(self, sbPath)), 0o644); err != nil {
-		return fmt.Errorf("write plist: %w", err)
-	}
-
-	// Step 7: install hosts block.
+	// Step 6: install hosts block. Done before starting the service so the
+	// first packet already hits our SNI proxy.
 	if err := hosts.Install(config.KiroDomains); err != nil {
 		return fmt.Errorf("install hosts block: %w", err)
 	}
 
-	// Step 8: (re)load launchd.
-	// bootstrap is idempotent: if already loaded, kickstart just restarts.
-	_ = exec.Command("launchctl", "bootout", "system", PlistPath).Run()
-	if out, err := exec.Command("launchctl", "bootstrap", "system", PlistPath).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w: %s", err, out)
+	// Step 7: platform-specific service registration + start.
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find kiroctl binary: %w", err)
 	}
-	if out, err := exec.Command("launchctl", "kickstart", "-k", "system/"+ServiceLabel).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl kickstart: %w: %s", err, out)
+	if err := InstallService(self, sbPath); err != nil {
+		return fmt.Errorf("install service: %w", err)
 	}
 
-	// Step 9: flush macOS DNS resolver caches.
-	_ = exec.Command("dscacheutil", "-flushcache").Run()
-	_ = exec.Command("killall", "-HUP", "mDNSResponder").Run()
+	// Step 8: flush DNS so cached answers don't resolve to real IPs.
+	FlushDNS()
 
 	fmt.Printf("✓ kiroctl enabled\n")
 	fmt.Printf("  hosts   : %d domains → 127.0.0.1\n", len(config.KiroDomains))
-	fmt.Printf("  plist   : %s\n", PlistPath)
+	fmt.Printf("  service : %s\n", ServiceLabel)
 	fmt.Printf("  config  : %s\n", SystemConfigPath())
-	fmt.Printf("  logs    : %s / %s\n", LogOut, LogErr)
+	fmt.Printf("  logs    : %s\n", LogOut)
 	if dep.UserName != "" {
 		fmt.Printf("  user    : %s\n", dep.UserName)
 	}
 	return nil
-}
-
-func renderPlist(kiroctlPath, singBoxPath string) string {
-	// launchd runs `kiroctl serve`, which in turn spawns sing-box as a
-	// child and itself listens on :443/:80 for SNI hijack. Running the
-	// whole thing under one process group makes shutdown clean.
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>%s</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>%s</string>
-    <string>serve</string>
-    <string>-sing-box</string><string>%s</string>
-    <string>-config</string><string>%s</string>
-    <string>-workdir</string><string>%s</string>
-    <string>-sni-addr</string><string>127.0.0.1:443</string>
-    <string>-http-addr</string><string>127.0.0.1:80</string>
-    <string>-socks-addr</string><string>127.0.0.1:1080</string>
-  </array>
-  <key>RunAtLoad</key><false/>
-  <key>KeepAlive</key><dict><key>Crashed</key><true/></dict>
-  <key>StandardOutPath</key><string>%s</string>
-  <key>StandardErrorPath</key><string>%s</string>
-  <key>ProcessType</key><string>Interactive</string>
-</dict>
-</plist>
-`, ServiceLabel, kiroctlPath, singBoxPath, SystemConfigPath(), WorkDirSystem, LogOut, LogErr)
 }

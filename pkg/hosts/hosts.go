@@ -15,15 +15,32 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 const (
-	HostsPath   = "/etc/hosts"
 	BlockStart  = "# >>> kiroctl managed block (do not edit manually)"
 	BlockEnd    = "# <<< kiroctl managed block"
 	InterceptIP = "127.0.0.1"
 )
+
+// HostsPath resolves the OS hosts file at startup.
+//
+// Windows keeps hosts in System32\drivers\etc; the location is fixed by the
+// OS and lives on whichever drive %SystemRoot% points at (usually C:).
+// Every other Unix-ish OS uses /etc/hosts.
+var HostsPath = func() string {
+	if runtime.GOOS == "windows" {
+		root := os.Getenv("SystemRoot")
+		if root == "" {
+			root = `C:\Windows`
+		}
+		return filepath.Join(root, "System32", "drivers", "etc", "hosts")
+	}
+	return "/etc/hosts"
+}()
 
 // IsInstalled reports whether the kiroctl block is currently present.
 func IsInstalled() (bool, error) {
@@ -166,6 +183,16 @@ func extractBlock(orig []byte) []string {
 }
 
 func writeHosts(content []byte) error {
+	// Windows is finicky about atomic-rename of hosts (Defender realtime
+	// scan may hold the file open). Overwrite in place there — losing a
+	// partial write during a power failure is acceptable given hosts is
+	// trivially restorable.
+	if runtime.GOOS == "windows" {
+		if err := os.WriteFile(HostsPath, content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", HostsPath, err)
+		}
+		return nil
+	}
 	tmp := HostsPath + ".kiroctl.tmp"
 	if err := os.WriteFile(tmp, content, 0o644); err != nil {
 		return fmt.Errorf("write tmp: %w", err)
@@ -173,7 +200,5 @@ func writeHosts(content []byte) error {
 	if err := os.Rename(tmp, HostsPath); err != nil {
 		return fmt.Errorf("rename into place: %w", err)
 	}
-	// macOS: flush DNS cache so changes take effect immediately.
-	// We don't error on failure — worst case is a few seconds of stale cache.
 	return nil
 }

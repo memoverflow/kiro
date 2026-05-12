@@ -1,15 +1,12 @@
 // Package cmd implements kiroctl subcommands.
 //
-// Shared layout for the Mac side:
+// Platform-specific state lives in shared_<os>.go under build tags:
 //
-//	~/.kiro-proxy/config.env     client deployment (from deploy-ec2.sh)
-//	~/.kiro-proxy/sing-box.json  generated sing-box config (read by kiroctl only)
-//	/Library/LaunchDaemons/io.kiroproxy.sing-box.plist   launchd spec
-//	/var/log/kiroproxy.out / .err   sing-box logs
+//	darwin:  /Library/LaunchDaemons/…plist, /Library/Application Support/…
+//	windows: %ProgramData%\KiroProxy\… plus a Windows service
 //
-// Any file under /Library, /etc, or /var needs sudo. /etc/sudoers.d/kiroctl
-// (written by the installer) lets us launchctl (un)load the plist and run
-// sing-box without prompting.
+// The cross-platform code here deals with the user-side config (~/.kiro-proxy/…)
+// and the decision tree for locating sing-box.
 package cmd
 
 import (
@@ -19,16 +16,12 @@ import (
 	"path/filepath"
 )
 
-const (
-	PlistPath     = "/Library/LaunchDaemons/io.kiroproxy.sing-box.plist"
-	ServiceLabel  = "io.kiroproxy.sing-box"
-	WorkDirSystem = "/Library/Application Support/KiroProxy"
-	LogOut        = "/var/log/kiroproxy.out.log"
-	LogErr        = "/var/log/kiroproxy.err.log"
-)
+// ServiceLabel identifies our background service to the platform service
+// manager. On macOS it's the launchd label; on Windows it's the service name.
+const ServiceLabel = "io.kiroproxy.sing-box"
 
 // SystemConfigPath returns the path sing-box itself reads.
-// We keep it outside of the user's home so launchd (running as root) can see it.
+// Kept outside the user's home so privileged services can see it.
 func SystemConfigPath() string {
 	return filepath.Join(WorkDirSystem, "sing-box.json")
 }
@@ -57,21 +50,21 @@ func EnvFilePath() string {
 // SingBoxPath resolves the sing-box binary, in priority order:
 //
 //  1. KIRO_SING_BOX env var (escape hatch, useful in dev)
-//  2. Previously-extracted embedded binary at WorkDirSystem/bin/sing-box
-//  3. If running as root, extract the embedded copy now and return it
-//  4. sing-box in $PATH (e.g. homebrew install)
+//  2. Previously-extracted embedded binary under WorkDirSystem/bin
+//  3. If running elevated, extract the embedded copy now and return it
+//  4. sing-box in $PATH (e.g. brew install)
 //
-// Step 3 is what makes a brew-less install work: the very first `sudo kiroctl
-// enable` materialises the bundled binary, and everything afterwards re-uses it.
+// Step 3 is what makes a from-scratch install work: the very first privileged
+// invocation materialises the bundled binary; everything afterwards re-uses it.
 func SingBoxPath() (string, error) {
 	if p := os.Getenv("KIRO_SING_BOX"); p != "" {
 		return p, nil
 	}
-	cached := filepath.Join(WorkDirSystem, "bin", "sing-box")
+	cached := filepath.Join(WorkDirSystem, "bin", singBoxFilename)
 	if _, err := os.Stat(cached); err == nil {
 		return cached, nil
 	}
-	if os.Geteuid() == 0 {
+	if isElevated() {
 		if p, err := ensureEmbeddedSingBox(); err == nil {
 			return p, nil
 		}
@@ -79,42 +72,7 @@ func SingBoxPath() (string, error) {
 	if p, err := exec.LookPath("sing-box"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("sing-box not found; run `sudo kiroctl enable` once to extract the embedded copy")
-}
-
-// mustSudo re-runs the current process under sudo. It exits on return.
-// Used by subcommands that must be root.
-func mustSudo() error {
-	if os.Geteuid() == 0 {
-		return nil
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("find self: %w", err)
-	}
-	args := append([]string{"-n", self}, os.Args[1:]...)
-	cmd := exec.Command("sudo", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		// If NOPASSWD sudoers is missing, -n fails silently. Fall through
-		// to an interactive sudo so the user can type a password once.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			fmt.Fprintln(os.Stderr, "(sudo NOPASSWD rule not found; falling back to interactive sudo)")
-			interactive := exec.Command("sudo", append([]string{self}, os.Args[1:]...)...)
-			interactive.Stdin = os.Stdin
-			interactive.Stdout = os.Stdout
-			interactive.Stderr = os.Stderr
-			err = interactive.Run()
-		}
-		if err != nil {
-			os.Exit(exitCode(err))
-		}
-	}
-	os.Exit(0)
-	return nil
+	return "", fmt.Errorf("sing-box not found; run `kiroctl install` first to extract the embedded copy")
 }
 
 func exitCode(err error) int {

@@ -120,20 +120,23 @@ kiroctl disable      # 解除
 
 ## 给同事分发二进制（不用 brew / git）
 
-对方 Mac 如果没装过任何东西，一份单文件就够。
+对方机器全新、只有操作系统，一份单文件就够。
 
 **你这边**（准备发布文件）：
 
 ```bash
 ./scripts/build-dist.sh
-# → dist/kiroctl-darwin-arm64 (~56 MiB，嵌入了 sing-box 1.13.11)
+# → dist/kiroctl-darwin-arm64        (~53 MiB，Apple Silicon)
+# → dist/kiroctl-windows-amd64.exe   (~49 MiB，Windows x64)
+# 两个都嵌入了 sing-box 1.13.11
 ```
 
-**对方这边**（全新 Mac，只需 Apple Silicon）：
+### macOS（Apple Silicon）
 
 ```bash
-# 1. 收到文件，去 quarantine
-xattr -d com.apple.quarantine ~/Downloads/kiroctl-darwin-arm64
+# 1. 加执行权限 + 去 quarantine
+chmod +x ~/Downloads/kiroctl-darwin-arm64
+xattr -d com.apple.quarantine ~/Downloads/kiroctl-darwin-arm64 2>/dev/null || true
 
 # 2. 一次性 bootstrap（输一次 sudo 密码）
 #    会自拷到 /usr/local/bin/kiroctl、解压 sing-box、写 sudoers
@@ -146,7 +149,31 @@ kiroctl config set-user alice --server=... --server-key=... --psk=...
 sudo kiroctl enable
 ```
 
-不需要 brew、不需要 git、不需要 Go 工具链。`scripts/install-kiroctl.sh` 仍然留着给开发者用（从源码装）。
+### Windows（x64，PowerShell）
+
+```powershell
+# 1. SmartScreen 可能拦截：右键属性 → "解除锁定"，或 "更多信息" → "仍要运行"
+
+# 2. 一次性 bootstrap（UAC 弹窗 x1，自拷到 Program Files、
+#    解压 sing-box、注册 Windows Service、加防火墙入站规则）
+.\kiroctl-windows-amd64.exe install
+
+# 3. 粘贴 context 命令（同 macOS）
+kiroctl config set-user alice --server=... --server-key=... --psk=...
+
+# 4. 启用（UAC 弹窗 x1，启动服务 + 改 hosts）
+kiroctl enable
+```
+
+装好以后 `kiroctl` 在 PATH 里（Windows 上新开 PowerShell 窗口才会生效）。
+
+**Windows 注意事项**：
+
+- `:443` / `:80` 端口冲突：如果装了 IIS / Skype / Docker Desktop / HyperV，`kiroctl enable` 可能起不来。用 `netstat -ano | findstr :443` 排查，停掉冲突服务
+- 代码未签名：SmartScreen 首次下载会警告，属正常，选"仍要运行"
+- kiroctl 注册为 Windows Service，**手动启停**，不开机自启。重启后需要再跑一次 `kiroctl enable`
+
+不需要 brew / git / go 工具链。`scripts/install-kiroctl.sh` 仍然留着给开发者用（从源码装）。
 
 ## 给同事分发用户
 

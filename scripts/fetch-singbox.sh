@@ -1,51 +1,71 @@
 #!/usr/bin/env bash
-# fetch-singbox.sh — download the sing-box darwin-arm64 binary and stage it
-# under cmd/kiroctl/embed/ for go:embed inclusion.
+# fetch-singbox.sh — download sing-box binaries and stage them under
+# cmd/kiroctl/cmd/embed/ for go:embed inclusion.
 #
-# We pin the version so the embedded artifact is reproducible. Bump VERSION
-# when you want a newer sing-box. Re-run this script after bumping.
+# Pinning VERSION keeps embedded artifacts reproducible. Bump VERSION to
+# upgrade. Re-run with FORCE=1 to re-download even if cached.
 #
 # Usage:
-#   ./scripts/fetch-singbox.sh          # download if missing
-#   FORCE=1 ./scripts/fetch-singbox.sh  # re-download even if cached
+#   ./scripts/fetch-singbox.sh                  # fetch all targets (darwin+win)
+#   TARGETS="darwin-arm64" ./scripts/fetch-singbox.sh
+#   FORCE=1 ./scripts/fetch-singbox.sh
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${SINGBOX_VERSION:-1.13.11}"
-ARCH_TAG="darwin-arm64"
-URL="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-${ARCH_TAG}.tar.gz"
+TARGETS="${TARGETS:-darwin-arm64 windows-amd64}"
 
 EMBED_DIR="cmd/kiroctl/cmd/embed"
-DST="${EMBED_DIR}/sing-box-darwin-arm64"
 VERSION_FILE="${EMBED_DIR}/sing-box.version"
-
 mkdir -p "$EMBED_DIR"
 
-if [[ -f "$DST" && -f "$VERSION_FILE" && "${FORCE:-}" != "1" ]]; then
-  have="$(cat "$VERSION_FILE")"
-  if [[ "$have" == "$VERSION" ]]; then
-    echo "✓ sing-box $VERSION already embedded ($DST)"
-    exit 0
+fetch_one() {
+  local target="$1"
+  local archive_ext="tar.gz"
+  local dst="${EMBED_DIR}/sing-box-${target}"
+  local bin_name="sing-box"
+  if [[ "$target" == windows-* ]]; then
+    archive_ext="zip"
+    dst+=".exe"
+    bin_name="sing-box.exe"
   fi
-  echo "▸ upgrading embedded sing-box: $have -> $VERSION"
-fi
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+  if [[ -f "$dst" && -f "$VERSION_FILE" && "${FORCE:-}" != "1" ]]; then
+    have="$(cat "$VERSION_FILE")"
+    if [[ "$have" == "$VERSION" ]]; then
+      echo "✓ sing-box $VERSION ($target) already embedded"
+      return
+    fi
+  fi
 
-echo "▸ downloading $URL"
-curl -fsSL -o "$tmp/sb.tar.gz" "$URL"
+  local url="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-${target}.${archive_ext}"
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
 
-echo "▸ extracting"
-tar -xzf "$tmp/sb.tar.gz" -C "$tmp"
+  echo "▸ downloading $url"
+  curl -fsSL -o "$tmp/sb.${archive_ext}" "$url"
 
-# archive layout: sing-box-<ver>-<arch>/sing-box
-src="$(find "$tmp" -type f -name sing-box -perm +111 | head -1)"
-[[ -n "$src" ]] || { echo "✗ sing-box binary not found in archive" >&2; exit 1; }
+  echo "▸ extracting ($target)"
+  if [[ "$archive_ext" == "tar.gz" ]]; then
+    tar -xzf "$tmp/sb.tar.gz" -C "$tmp"
+  else
+    unzip -q "$tmp/sb.zip" -d "$tmp"
+  fi
 
-install -m 0755 "$src" "$DST"
+  local src
+  src="$(find "$tmp" -type f -name "$bin_name" | head -1)"
+  [[ -n "$src" ]] || { echo "✗ $bin_name not found in archive for $target" >&2; exit 1; }
+
+  install -m 0755 "$src" "$dst"
+  local size
+  size=$(stat -f %z "$dst" 2>/dev/null || stat -c %s "$dst")
+  echo "✓ embedded sing-box $VERSION $target ($((size / 1024 / 1024)) MiB at $dst)"
+}
+
+for t in $TARGETS; do
+  fetch_one "$t"
+done
+
 printf '%s' "$VERSION" > "$VERSION_FILE"
-
-size=$(stat -f %z "$DST" 2>/dev/null || stat -c %s "$DST")
-echo "✓ embedded sing-box $VERSION ($((size / 1024 / 1024)) MiB at $DST)"
