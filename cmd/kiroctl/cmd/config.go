@@ -47,18 +47,25 @@ func Config(args []string) error {
 }
 
 func configSetUser(args []string) error {
+	// Pull NAME out before flag parsing. Go's flag package stops at the first
+	// non-flag arg, so we'd otherwise force users to put NAME *after* all
+	// flags — surprising and unlike kubectl.
+	name, flagArgs, err := extractPositional(args)
+	if err != nil {
+		return fmt.Errorf("usage: kiroctl config set-user NAME --server=... --server-key=... --psk=...")
+	}
+
 	fs := flag.NewFlagSet("config set-user", flag.ExitOnError)
 	server := fs.String("server", "", "server host:port, e.g. 54.x.x.x:1443")
 	serverKey := fs.String("server-key", "", "shared server PSK (base64)")
 	psk := fs.String("psk", "", "per-user PSK (base64)")
 	method := fs.String("method", config.DefaultMethod, "shadowsocks method")
 	user := fs.String("user", "", "user name inside shadowsocks (defaults to NAME)")
-	fs.Parse(args)
+	fs.Parse(flagArgs)
 
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: kiroctl config set-user NAME --server=... --server-key=... --psk=...")
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected extra args: %v", fs.Args())
 	}
-	name := fs.Arg(0)
 	if *server == "" || *serverKey == "" || *psk == "" {
 		return fmt.Errorf("--server, --server-key, --psk are all required")
 	}
@@ -178,6 +185,27 @@ func configView() error {
 	}
 	fmt.Fprintln(os.Stderr, "(psk / server-key redacted — file lives at "+path+")")
 	return nil
+}
+
+// extractPositional pulls the first non-flag argument out of args and returns
+// the rest (in original order). Returns error if no positional is found.
+//
+// We accept both "NAME --flag=x" and "--flag=x NAME" forms — matches how
+// kubectl handles `kubectl config set-cluster NAME --server=...`.
+func extractPositional(args []string) (string, []string, error) {
+	rest := make([]string, 0, len(args))
+	name := ""
+	for _, a := range args {
+		if name == "" && !strings.HasPrefix(a, "-") {
+			name = a
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if name == "" {
+		return "", nil, fmt.Errorf("missing NAME")
+	}
+	return name, rest, nil
 }
 
 func loadKC() (*config.Kubeconfig, string, error) {
