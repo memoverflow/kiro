@@ -73,6 +73,12 @@ type pageData struct {
 	Users     []User
 	Events    []AuditEvent
 	LogTail   string
+
+	// For the users page: everything needed to render a copy-paste
+	// `kiroctl config set-user …` command per row.
+	Server    string // e.g. "54.x.x.x:1443"
+	ServerKey string // shared server PSK
+	Method    string
 }
 
 // renderPage renders a named body template, then embeds it in layout.
@@ -135,7 +141,19 @@ func (s *Server) usersPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, "users_body", pageData{Title: "Users", Page: "users", Users: users})
+	serverKey, err := s.cfg.Store.ServerKey()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.renderPage(w, r, "users_body", pageData{
+		Title:     "Users",
+		Page:      "users",
+		Users:     users,
+		Server:    fmt.Sprintf("%s:%d", s.cfg.EIP, s.cfg.Port),
+		ServerKey: serverKey,
+		Method:    s.cfg.Method,
+	})
 }
 
 func (s *Server) usersCreate(w http.ResponseWriter, r *http.Request) {

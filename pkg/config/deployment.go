@@ -4,6 +4,7 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,8 +30,42 @@ type Deployment struct {
 	Region   string
 }
 
-// LoadDeployment parses a simple KEY=VALUE env file.
+// LoadDeployment resolves the active client deployment.
+//
+// Priority (first hit wins):
+//  1. ~/.kiro-proxy/config.json current-context (kubectl-style)
+//  2. KEY=VALUE env file at path (legacy)
+//
+// `path` is only consulted for step 2 — callers may pass the default returned
+// by kiroctl's EnvFilePath().
 func LoadDeployment(path string) (*Deployment, error) {
+	if dep, err := loadFromKubeconfig(); err == nil {
+		return dep, nil
+	} else if !errors.Is(err, ErrNoContext) && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("load kubeconfig: %w", err)
+	}
+	return loadFromEnv(path)
+}
+
+// loadFromKubeconfig returns ErrNoContext (possibly wrapped) when there's no
+// active context, letting the caller fall back to env loading.
+func loadFromKubeconfig() (*Deployment, error) {
+	p, err := KubeconfigPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := LoadKubeconfig(p)
+	if err != nil {
+		return nil, err
+	}
+	_, ctx, err := cfg.Current()
+	if err != nil {
+		return nil, err
+	}
+	return ctx.toDeployment()
+}
+
+func loadFromEnv(path string) (*Deployment, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)

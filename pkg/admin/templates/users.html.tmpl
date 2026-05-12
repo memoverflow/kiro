@@ -3,16 +3,33 @@
 
 <table>
   <thead>
-    <tr><th>Name</th><th>Created</th><th>Note</th><th>Password</th><th></th></tr>
+    <tr><th>Name</th><th>Created</th><th>Note</th><th>Onboarding command</th><th></th></tr>
   </thead>
   <tbody>
+  {{$server := .Server}}{{$serverKey := .ServerKey}}{{$method := .Method}}
   {{range .Users}}
+    {{$cmd := printf "kiroctl config set-user %s --server=%s --server-key=%s --psk=%s --method=%s" .Name $server $serverKey .Password $method}}
     <tr>
       <td><strong>{{.Name}}</strong></td>
       <td>{{.CreatedAt.Format "2006-01-02 15:04:05 UTC"}}</td>
       <td>{{.Note}}</td>
-      <td><code>{{.Password}}</code></td>
       <td>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <input type="text" readonly value="{{$cmd}}" id="cmd-{{.Name}}" style="flex:1;min-width:28rem;font-size:.75rem;color:#d2a8ff">
+          <button type="button" class="btn" onclick="copyCmd('cmd-{{.Name}}', this)">copy</button>
+        </div>
+        <details style="margin-top:.4rem">
+          <summary style="color:#8b949e;font-size:.75rem;cursor:pointer">fields</summary>
+          <div style="font-size:.75rem;color:#8b949e;margin-top:.3rem;line-height:1.6">
+            server: <code>{{$server}}</code><br>
+            server-key: <code>{{$serverKey}}</code><br>
+            psk: <code>{{.Password}}</code><br>
+            user: <code>{{.Name}}</code><br>
+            method: <code>{{$method}}</code>
+          </div>
+        </details>
+      </td>
+      <td style="white-space:nowrap">
         <a class="btn" href="/users/{{.Name}}/env" target="_blank">env file</a>
         <form class="inline" method="post" action="/users/{{.Name}}/delete" onsubmit="return confirm('Delete user {{.Name}}? This cannot be undone.');">
           <button type="submit" class="danger">delete</button>
@@ -33,7 +50,21 @@
 </form>
 
 <p style="margin-top:2rem;color:#8b949e;font-size:.8rem">
-  Click <em>env file</em> to download a ready-to-use <code>config.env</code> for that user.
-  Hand it off, they drop it at <code>~/.kiro-proxy/config.env</code>, run <code>kiroctl enable</code>, done.
+  Preferred onboarding: <em>copy</em> the command and send it to the user (Signal / internal chat).
+  They paste it on their Mac — no file to move, no path to remember. Falls back to
+  <em>env file</em> download if you'd rather hand off a <code>config.env</code>.
 </p>
+
+<script>
+function copyCmd(id, btn) {
+  const el = document.getElementById(id);
+  el.select();
+  el.setSelectionRange(0, 9999);
+  navigator.clipboard.writeText(el.value).then(() => {
+    const old = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+</script>
 {{end}}

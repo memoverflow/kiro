@@ -43,6 +43,8 @@ func main() {
 		mustRun(cmd.Dashboard(args))
 	case "serve":
 		mustRun(cmd.Serve(args))
+	case "config":
+		mustRun(cmd.Config(args))
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -67,10 +69,12 @@ Usage:
   kiroctl disable      restore hosts and stop the tunnel
   kiroctl status       show current state
   kiroctl dashboard    open the sing-box web dashboard
+  kiroctl config …     manage client contexts (kubectl-style)
   kiroctl help         this message
 
 Environment:
-  KIRO_PROXY_ENV       path to the client env file (default: ~/.kiro-proxy/config.env)
+  KIRO_CONFIG          path to client config.json (default: ~/.kiro-proxy/config.json)
+  KIRO_PROXY_ENV       legacy env file path (default: ~/.kiro-proxy/config.env)
   KIRO_SING_BOX        path to sing-box binary (default: sing-box in PATH)
 `)
 }

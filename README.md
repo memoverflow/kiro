@@ -77,7 +77,7 @@ aws configure   # IAM 用户，EC2 + VPC 权限
 
 会：交叉编译 `kiro-admin` for linux/arm64，scp 上去，装 systemd service，初始化 admin 密码，默认创建一个叫 `admin` 的 Shadowsocks 用户。
 
-### Step 3 — 连 Web UI，下载 admin 的 env 文件
+### Step 3 — 连 Web UI，拿 admin 的 kiroctl 命令
 
 ```bash
 # 开 SSH 隧道
@@ -88,7 +88,13 @@ ssh -i "$SSH_KEY" -L 8080:127.0.0.1:8080 ubuntu@$KIRO_EC2_HOST
 open http://127.0.0.1:8080/
 ```
 
-用你在 Step 2 设置的管理员密码登录。页面上点 `admin` 那行的 **env file** → 下载 `admin.env` → 保存到 `~/.kiro-proxy/config.env`。
+用你在 Step 2 设置的管理员密码登录。页面上每个用户一行，有个 **copy** 按钮，复制出来是这种一整条可粘贴的命令：
+
+```
+kiroctl config set-user admin --server=54.x.x.x:1443 --server-key=… --psk=… --method=2022-blake3-aes-128-gcm
+```
+
+复制、粘贴、回车——context 写进 `~/.kiro-proxy/config.json`（kubectl 风格）。需要的话 **env file** 也还在，下载后塞到 `~/.kiro-proxy/config.env` 也能用。
 
 ### Step 4 — 装 kiroctl
 
@@ -114,16 +120,17 @@ kiroctl disable      # 解除
 
 ## 给同事分发用户
 
-1. 在 Web UI 点 **Add user**，填 `alice` + 备注，sing-box 自动 reload，她的密钥就生效了
-2. 点 alice 那行的 **env file**，下载 `alice.env` 发给她（Signal/邮件/任何安全通道）
-3. 告诉她 SG 需要加她的公网 IP，你手动用 AWS console 或 CLI 加一条 TCP 1443 和 UDP 1443 的 /32 入站规则
+1. 在 Web UI 点 **Add user**，填 `alice` + 备注，sing-box 自动 reload
+2. 点 alice 那行的 **copy**，把 `kiroctl config set-user alice …` 整条命令通过安全通道发给她（Signal / 内部 IM）
+3. 手动去 SG 加她的公网 IP `/32`：TCP 1443 + UDP 1443（AWS console 或 CLI）
 4. 她在自己的 Mac 上：
    ```bash
-   mkdir -p ~/.kiro-proxy && mv alice.env ~/.kiro-proxy/config.env
-   chmod 600 ~/.kiro-proxy/config.env
-   ./scripts/install-kiroctl.sh   # 一次
+   ./scripts/install-kiroctl.sh     # 一次性装二进制 + sudoers
+   kiroctl config set-user alice --server=… --server-key=… --psk=…   # 粘贴你给的那条
    kiroctl enable
    ```
+
+> 想用旧的 env 文件方式也行：Web UI 里 **env file** 下载 `alice.env` → `mv ~/.kiro-proxy/config.env` → `kiroctl enable`。`config.json` 优先于 `config.env`。
 
 ### 吊销一个用户
 
@@ -225,6 +232,7 @@ ssh -i "$SSH_KEY" "ubuntu@$KIRO_EC2_HOST" 'sudo systemctl start sing-box'
 - **SSH key**：`~/.ssh/kiro-proxy-key.pem` 权限 400，不要进 git
 - **PSK 密钥**：每用户 16 字节 base64，Shadowsocks 2022 是 AEAD 加密认证
 - **Web UI**：只监听 127.0.0.1:8080，必须 SSH 隧道才能访问；admin 密码 bcrypt 存储
+- **`~/.kiro-proxy/config.json`**：权限 600，明文存 PSK；`kiroctl config view` 时会 redact 再打印
 - **`.kiro-proxy.env`**：权限 600，加进 `.gitignore`
 - **审计日志**：`/etc/kiro-admin/audit.jsonl`，记录谁什么时间做了什么
 
