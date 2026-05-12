@@ -1,0 +1,39 @@
+{{define "users_body"}}
+<h2 style="margin-top:0;font-size:.95rem;color:#8b949e">Shadowsocks users</h2>
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Created</th><th>Note</th><th>Password</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Users}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.CreatedAt.Format "2006-01-02 15:04:05 UTC"}}</td>
+      <td>{{.Note}}</td>
+      <td><code>{{.Password}}</code></td>
+      <td>
+        <a class="btn" href="/users/{{.Name}}/env" target="_blank">env file</a>
+        <form class="inline" method="post" action="/users/{{.Name}}/delete" onsubmit="return confirm('Delete user {{.Name}}? This cannot be undone.');">
+          <button type="submit" class="danger">delete</button>
+        </form>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="5" style="color:#8b949e">No users yet. Create one below.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h3 style="margin-top:2rem;font-size:.85rem;color:#8b949e">Add user</h3>
+<form method="post" action="/users/create" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+  <input type="text" name="name" placeholder="alice" required pattern="[a-zA-Z0-9_-]{1,32}" style="width:12rem">
+  <input type="text" name="note" placeholder="note (optional)" style="width:20rem">
+  <button type="submit" class="primary">create user</button>
+</form>
+
+<p style="margin-top:2rem;color:#8b949e;font-size:.8rem">
+  Click <em>env file</em> to download a ready-to-use <code>config.env</code> for that user.
+  Hand it off, they drop it at <code>~/.kiro-proxy/config.env</code>, run <code>kiroctl enable</code>, done.
+</p>
+{{end}}
