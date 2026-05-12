@@ -45,6 +45,8 @@ func main() {
 		mustRun(cmd.Serve(args))
 	case "config":
 		mustRun(cmd.Config(args))
+	case "install":
+		mustRun(cmd.Install(args))
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -65,6 +67,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `kiroctl — force Kiro IDE/CLI traffic through an EC2 hop.
 
 Usage:
+  kiroctl install      one-shot bootstrap: copy self into /usr/local/bin,
+                       extract embedded sing-box, write sudoers rule
   kiroctl enable       lock Kiro domains to 127.0.0.1 and start the tunnel
   kiroctl disable      restore hosts and stop the tunnel
   kiroctl status       show current state

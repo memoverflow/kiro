@@ -118,6 +118,36 @@ kiroctl dashboard    # 打开 http://127.0.0.1:9090/ui/ 看实时连接
 kiroctl disable      # 解除
 ```
 
+## 给同事分发二进制（不用 brew / git）
+
+对方 Mac 如果没装过任何东西，一份单文件就够。
+
+**你这边**（准备发布文件）：
+
+```bash
+./scripts/build-dist.sh
+# → dist/kiroctl-darwin-arm64 (~56 MiB，嵌入了 sing-box 1.13.11)
+```
+
+**对方这边**（全新 Mac，只需 Apple Silicon）：
+
+```bash
+# 1. 收到文件，去 quarantine
+xattr -d com.apple.quarantine ~/Downloads/kiroctl-darwin-arm64
+
+# 2. 一次性 bootstrap（输一次 sudo 密码）
+#    会自拷到 /usr/local/bin/kiroctl、解压 sing-box、写 sudoers
+./kiroctl-darwin-arm64 install
+
+# 3. 粘贴你发给她的 context 命令
+kiroctl config set-user alice --server=... --server-key=... --psk=...
+
+# 4. 启用
+sudo kiroctl enable
+```
+
+不需要 brew、不需要 git、不需要 Go 工具链。`scripts/install-kiroctl.sh` 仍然留着给开发者用（从源码装）。
+
 ## 给同事分发用户
 
 1. 在 Web UI 点 **Add user**，填 `alice` + 备注，sing-box 自动 reload

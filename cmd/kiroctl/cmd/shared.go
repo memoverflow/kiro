@@ -54,15 +54,32 @@ func EnvFilePath() string {
 	return filepath.Join(home, ".kiro-proxy", "config.env")
 }
 
-// SingBoxPath resolves the sing-box binary.
+// SingBoxPath resolves the sing-box binary, in priority order:
+//
+//  1. KIRO_SING_BOX env var (escape hatch, useful in dev)
+//  2. Previously-extracted embedded binary at WorkDirSystem/bin/sing-box
+//  3. If running as root, extract the embedded copy now and return it
+//  4. sing-box in $PATH (e.g. homebrew install)
+//
+// Step 3 is what makes a brew-less install work: the very first `sudo kiroctl
+// enable` materialises the bundled binary, and everything afterwards re-uses it.
 func SingBoxPath() (string, error) {
 	if p := os.Getenv("KIRO_SING_BOX"); p != "" {
 		return p, nil
 	}
+	cached := filepath.Join(WorkDirSystem, "bin", "sing-box")
+	if _, err := os.Stat(cached); err == nil {
+		return cached, nil
+	}
+	if os.Geteuid() == 0 {
+		if p, err := ensureEmbeddedSingBox(); err == nil {
+			return p, nil
+		}
+	}
 	if p, err := exec.LookPath("sing-box"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("sing-box not in PATH (set KIRO_SING_BOX)")
+	return "", fmt.Errorf("sing-box not found; run `sudo kiroctl enable` once to extract the embedded copy")
 }
 
 // mustSudo re-runs the current process under sudo. It exits on return.
