@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The embedded sing-box binaries aren't tracked in git (see .gitignore).
+      # Create empty placeholders so `go:embed` has something to read during CI
+      # type-checking. CI verifies the code compiles; release builds go through
+      # scripts/build-dist.sh which downloads the real binaries.
+      - name: Stub embedded sing-box binaries
+        run: |
+          mkdir -p cmd/kiroctl/cmd/embed
+          : > cmd/kiroctl/cmd/embed/sing-box-darwin-arm64
+          : > cmd/kiroctl/cmd/embed/sing-box-windows-amd64.exe
+          test -f cmd/kiroctl/cmd/embed/sing-box.version || echo 0.0.0 > cmd/kiroctl/cmd/embed/sing-box.version
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build darwin/arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: go build -o /tmp/kiroctl-darwin-arm64 ./cmd/kiroctl
+
+      - name: Build windows/amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o /tmp/kiroctl-windows-amd64.exe ./cmd/kiroctl
+
+      - name: Build linux/amd64 (kiro-admin)
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -o /tmp/kiro-admin ./cmd/kiro-admin
