@@ -1,0 +1,22 @@
+{{define "rotate_body"}}
+<h2 style="margin-top:0;font-size:.95rem;color:#f85149">⚠ Rotate server key</h2>
+
+<p style="color:#8b949e;font-size:.85rem">
+  This changes the outer Shadowsocks 2022 pre-shared key. After rotation:
+</p>
+<ul style="color:#8b949e;font-size:.85rem;line-height:1.6">
+  <li>Every existing client config stops working until they receive a new <code>config.env</code>.</li>
+  <li>You need to re-download and re-send <em>every user's</em> env file.</li>
+  <li>sing-box is reloaded automatically.</li>
+</ul>
+
+<p style="color:#8b949e;font-size:.85rem">Use this when:</p>
+<ul style="color:#8b949e;font-size:.85rem;line-height:1.6">
+  <li>A client machine was compromised and you can't tell which user leaked.</li>
+  <li>You want to force a mass key rotation on schedule.</li>
+</ul>
+
+<form method="post" action="/rotate" onsubmit="return confirm('Rotate the server key? ALL users will lose access until you reshare env files.');">
+  <button type="submit" class="danger">Rotate server key now</button>
+</form>
+{{end}}

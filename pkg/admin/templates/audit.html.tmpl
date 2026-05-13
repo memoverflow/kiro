@@ -1,0 +1,24 @@
+{{define "audit_body"}}
+<h2 style="margin-top:0;font-size:.95rem;color:#8b949e">Audit log (last {{len .Events}})</h2>
+
+<table>
+  <thead>
+    <tr><th>Time (UTC)</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>OK</th><th>Note</th></tr>
+  </thead>
+  <tbody>
+  {{range .Events}}
+    <tr>
+      <td>{{.Time.Format "2006-01-02 15:04:05"}}</td>
+      <td>{{.Actor}}</td>
+      <td>{{.IP}}</td>
+      <td><code>{{.Action}}</code></td>
+      <td>{{.Target}}</td>
+      <td>{{if .Ok}}<span style="color:#3fb950">✓</span>{{else}}<span style="color:#f85149">✗</span>{{end}}</td>
+      <td>{{.Note}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="7" style="color:#8b949e">No events yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

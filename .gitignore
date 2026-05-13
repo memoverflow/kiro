@@ -1,0 +1,11 @@
+/bin/
+/dist/
+/target/
+/ui/
+/.kiro-proxy.env
+*.pem
+
+# Fetched by scripts/fetch-singbox.sh, not tracked (~40 MiB each).
+# Re-fetch with that script before building a release.
+/cmd/kiroctl/cmd/embed/sing-box-darwin-arm64
+/cmd/kiroctl/cmd/embed/sing-box-windows-amd64.exe

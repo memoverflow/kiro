@@ -1,0 +1,70 @@
+{{define "users_body"}}
+<h2 style="margin-top:0;font-size:.95rem;color:#8b949e">Shadowsocks users</h2>
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Created</th><th>Note</th><th>Onboarding command</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{$server := .Server}}{{$serverKey := .ServerKey}}{{$method := .Method}}
+  {{range .Users}}
+    {{$cmd := printf "kiroctl config set-user %s --server=%s --server-key=%s --psk=%s --method=%s" .Name $server $serverKey .Password $method}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.CreatedAt.Format "2006-01-02 15:04:05 UTC"}}</td>
+      <td>{{.Note}}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <input type="text" readonly value="{{$cmd}}" id="cmd-{{.Name}}" style="flex:1;min-width:28rem;font-size:.75rem;color:#d2a8ff">
+          <button type="button" class="btn" onclick="copyCmd('cmd-{{.Name}}', this)">copy</button>
+        </div>
+        <details style="margin-top:.4rem">
+          <summary style="color:#8b949e;font-size:.75rem;cursor:pointer">fields</summary>
+          <div style="font-size:.75rem;color:#8b949e;margin-top:.3rem;line-height:1.6">
+            server: <code>{{$server}}</code><br>
+            server-key: <code>{{$serverKey}}</code><br>
+            psk: <code>{{.Password}}</code><br>
+            user: <code>{{.Name}}</code><br>
+            method: <code>{{$method}}</code>
+          </div>
+        </details>
+      </td>
+      <td style="white-space:nowrap">
+        <a class="btn" href="/users/{{.Name}}/env" target="_blank">env file</a>
+        <form class="inline" method="post" action="/users/{{.Name}}/delete" onsubmit="return confirm('Delete user {{.Name}}? This cannot be undone.');">
+          <button type="submit" class="danger">delete</button>
+        </form>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="5" style="color:#8b949e">No users yet. Create one below.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h3 style="margin-top:2rem;font-size:.85rem;color:#8b949e">Add user</h3>
+<form method="post" action="/users/create" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+  <input type="text" name="name" placeholder="alice" required pattern="[a-zA-Z0-9_-]{1,32}" style="width:12rem">
+  <input type="text" name="note" placeholder="note (optional)" style="width:20rem">
+  <button type="submit" class="primary">create user</button>
+</form>
+
+<p style="margin-top:2rem;color:#8b949e;font-size:.8rem">
+  Preferred onboarding: <em>copy</em> the command and send it to the user (Signal / internal chat).
+  They paste it on their Mac — no file to move, no path to remember. Falls back to
+  <em>env file</em> download if you'd rather hand off a <code>config.env</code>.
+</p>
+
+<script>
+function copyCmd(id, btn) {
+  const el = document.getElementById(id);
+  el.select();
+  el.setSelectionRange(0, 9999);
+  navigator.clipboard.writeText(el.value).then(() => {
+    const old = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+</script>
+{{end}}
