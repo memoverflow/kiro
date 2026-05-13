@@ -398,7 +398,7 @@ aws ec2 authorize-security-group-ingress --region us-east-1 --group-id <SG_ID> \
 
 ## Contributing
 
-欢迎 issue / PR。项目还在早期，**已知 Windows 侧有两个确认的待修问题**（详见 codex review / #1 Windows Service ServiceMain、#5 端口预检）。
+欢迎 issue / PR。项目还在早期，欢迎真机验证——特别是 Windows 侧的 EDR / Defender 行为。
 
 开发流程：
 
