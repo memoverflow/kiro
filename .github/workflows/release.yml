@@ -79,6 +79,40 @@ jobs:
           }
 
           {
+            echo "## Install"
+            echo
+            echo "### macOS (Apple Silicon)"
+            echo
+            echo '```bash'
+            echo "curl -LO https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/kiroctl-darwin-arm64"
+            echo 'chmod +x kiroctl-darwin-arm64'
+            echo 'xattr -d com.apple.quarantine kiroctl-darwin-arm64 2>/dev/null || true'
+            echo './kiroctl-darwin-arm64 install'
+            echo 'kiroctl config set-user <name> --server=<HOST:PORT> --server-key=<PSK> --psk=<PSK>'
+            echo 'sudo kiroctl enable'
+            echo 'kiroctl status'
+            echo '```'
+            echo
+            echo "### Windows (x64, PowerShell)"
+            echo
+            echo '```powershell'
+            echo "Invoke-WebRequest -Uri https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/kiroctl-windows-amd64.exe -OutFile kiroctl-windows-amd64.exe"
+            echo '.\kiroctl-windows-amd64.exe install'
+            echo '# Close this PowerShell, open a new one so the updated PATH takes effect.'
+            echo 'kiroctl config set-user <name> --server=<HOST:PORT> --server-key=<PSK> --psk=<PSK>'
+            echo 'kiroctl enable'
+            echo 'kiroctl status'
+            echo '```'
+            echo
+            echo "SmartScreen may prompt on first run — click **More info → Run anyway**."
+            echo
+            echo "## Verify"
+            echo
+            echo '```bash'
+            echo "curl -LO https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/checksums.txt"
+            echo 'sha256sum -c checksums.txt'
+            echo '```'
+            echo
             echo "## What's changed"
             echo
 
