@@ -30,7 +30,7 @@ build_target() {
   echo "▸ building $out ($goos/$goarch)"
   GOOS="$goos" GOARCH="$goarch" go build -ldflags="-s -w" -o "$out" ./cmd/kiroctl
   local size
-  size=$(stat -f %z "$out" 2>/dev/null || stat -c %s "$out")
+  size=$(wc -c < "$out" | tr -d '[:space:]')
   echo "✓ $out ($((size / 1024 / 1024)) MiB)"
 }
 

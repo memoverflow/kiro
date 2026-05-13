@@ -59,8 +59,11 @@ fetch_one() {
   [[ -n "$src" ]] || { echo "✗ $bin_name not found in archive for $target" >&2; exit 1; }
 
   install -m 0755 "$src" "$dst"
+  # Portable file-size in bytes: `wc -c` works identically on BSD (macOS) and GNU
+  # (Linux/CI). `stat` flags differ between the two and break silently on the
+  # wrong OS — don't use them for portable scripts.
   local size
-  size=$(stat -f %z "$dst" 2>/dev/null || stat -c %s "$dst")
+  size=$(wc -c < "$dst" | tr -d '[:space:]')
   echo "✓ embedded sing-box $VERSION $target ($((size / 1024 / 1024)) MiB at $dst)"
 }
 
