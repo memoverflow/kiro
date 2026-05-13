@@ -1,0 +1,89 @@
+name: release
+
+# Trigger: push a SemVer tag (`v0.4.0`, `v1.2.3`, `v1.0.0-rc1`, …).
+# The release is created from the tag's commit, NOT from HEAD of main. Tag
+# whatever commit you want to ship from.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # needed to create the Release + upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the auto-generated notes can diff against the
+          # previous tag.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # fetch-singbox.sh downloads the sing-box binaries for each target.
+      # Kept as a plain shell script so local dev (scripts/build-dist.sh) and
+      # CI use the exact same fetch path — no drift between environments.
+      - name: Fetch embedded sing-box binaries
+        run: ./scripts/fetch-singbox.sh
+
+      - name: Build darwin/arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: go build -ldflags="-s -w" -o dist/kiroctl-darwin-arm64 ./cmd/kiroctl
+
+      - name: Build windows/amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -ldflags="-s -w" -o dist/kiroctl-windows-amd64.exe ./cmd/kiroctl
+
+      # Published alongside the binaries so downstream users can verify what
+      # they downloaded. A single combined `checksums.txt` matches the format
+      # curl/scripts expect (sha256sum -c).
+      - name: Generate SHA-256 checksums
+        run: |
+          cd dist
+          sha256sum kiroctl-darwin-arm64 kiroctl-windows-amd64.exe > checksums.txt
+          cat checksums.txt
+
+      # `gh release create --generate-notes` uses the repo's .github/release.yml
+      # to group commits by label or conventional-commit prefix — see that file
+      # for the category layout.
+      #
+      # If this tag's release already exists (e.g., re-running after a failed
+      # asset upload), we overwrite assets via `gh release upload --clobber`
+      # instead of duplicating the release body.
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — refreshing assets only."
+            gh release upload "$TAG" \
+              dist/kiroctl-darwin-arm64 \
+              dist/kiroctl-windows-amd64.exe \
+              dist/checksums.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/kiroctl-darwin-arm64 \
+            dist/kiroctl-windows-amd64.exe \
+            dist/checksums.txt

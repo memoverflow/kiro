@@ -412,6 +412,25 @@ go vet ./...
 
 Commit message 用 [Conventional Commits](https://www.conventionalcommits.org/)：`feat:` / `fix:` / `docs:` / `refactor:` / `chore:`。
 
+### Cutting a release
+
+Releases are fully automated. To cut a new version:
+
+```bash
+git tag v0.4.0
+git push origin v0.4.0
+```
+
+The `release` workflow (`.github/workflows/release.yml`) takes over from there:
+
+1. Cross-compiles `kiroctl-darwin-arm64` and `kiroctl-windows-amd64.exe`
+2. Downloads pinned `sing-box` and embeds it into both binaries
+3. Generates SHA-256 `checksums.txt`
+4. Creates a GitHub Release with auto-generated notes (grouped by `.github/release.yml`)
+5. Uploads all three assets
+
+Tag format must be SemVer-ish (`v<MAJOR>.<MINOR>.<PATCH>`). Pre-releases like `v0.4.0-rc1` also work.
+
 ---
 
 ## License
