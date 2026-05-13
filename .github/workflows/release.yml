@@ -55,13 +55,66 @@ jobs:
           sha256sum kiroctl-darwin-arm64 kiroctl-windows-amd64.exe > checksums.txt
           cat checksums.txt
 
-      # `gh release create --generate-notes` uses the repo's .github/release.yml
-      # to group commits by label or conventional-commit prefix — see that file
-      # for the category layout.
-      #
+      # Build release notes from git log between the previous tag and this
+      # one. GitHub's --generate-notes only groups merged PRs, which is empty
+      # for direct push-to-main workflows. Using conventional-commit prefixes
+      # directly from git log gives useful grouping regardless of PR usage.
+      - name: Generate release notes
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || echo '')"
+          if [[ -z "$PREV_TAG" ]]; then
+            RANGE="$TAG"
+          else
+            RANGE="$PREV_TAG..$TAG"
+          fi
+
+          # Helper: pull commit subjects matching a prefix regex.
+          group() {
+            local pattern="$1"
+            git log --no-merges --pretty=format:'- %s (%h)' "$RANGE" | grep -E "$pattern" || true
+          }
+
+          {
+            echo "## What's changed"
+            echo
+
+            FEAT=$(group '^- feat(\(|:)')
+            [[ -n "$FEAT" ]] && { echo "### Features"; echo "$FEAT"; echo; }
+
+            FIX=$(group '^- fix(\(|:)')
+            [[ -n "$FIX" ]] && { echo "### Fixes"; echo "$FIX"; echo; }
+
+            DOCS=$(group '^- docs(\(|:)')
+            [[ -n "$DOCS" ]] && { echo "### Documentation"; echo "$DOCS"; echo; }
+
+            CI=$(group '^- (ci|build|chore)(\(|:)')
+            [[ -n "$CI" ]] && { echo "### CI & Chores"; echo "$CI"; echo; }
+
+            OTHER=$(git log --no-merges --pretty=format:'- %s (%h)' "$RANGE" \
+              | grep -Ev '^- (feat|fix|docs|ci|build|chore)(\(|:)' || true)
+            [[ -n "$OTHER" ]] && { echo "### Other"; echo "$OTHER"; echo; }
+
+            echo "## Checksums"
+            echo
+            echo '```'
+            cat dist/checksums.txt
+            echo '```'
+            echo
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "**Full changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+            fi
+          } > /tmp/release-notes.md
+
+          echo "---notes---"
+          cat /tmp/release-notes.md
+          echo "---/notes---"
+
       # If this tag's release already exists (e.g., re-running after a failed
-      # asset upload), we overwrite assets via `gh release upload --clobber`
-      # instead of duplicating the release body.
+      # asset upload), we overwrite assets via `gh release upload --clobber`.
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +123,10 @@ jobs:
           set -euo pipefail
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG already exists — refreshing assets only."
+            echo "Release $TAG already exists — refreshing notes + assets."
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file /tmp/release-notes.md
             gh release upload "$TAG" \
               dist/kiroctl-darwin-arm64 \
               dist/kiroctl-windows-amd64.exe \
@@ -83,7 +139,7 @@ jobs:
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
-            --generate-notes \
+            --notes-file /tmp/release-notes.md \
             dist/kiroctl-darwin-arm64 \
             dist/kiroctl-windows-amd64.exe \
             dist/checksums.txt
