@@ -13,9 +13,15 @@ import (
 
 // Enable locks Kiro domains to localhost and starts the platform service.
 // Cross-platform: launchd on macOS, Windows Service on Windows.
+//
+// Ordering matters: we probe the :443/:80 listeners BEFORE touching hosts so
+// a port conflict can't leave the user with DNS pointed at a dead proxy. If
+// anything after hosts.Install() fails we roll hosts back.
 func Enable(args []string) error {
 	fs := flag.NewFlagSet("enable", flag.ExitOnError)
 	envPath := fs.String("env", EnvFilePath(), "path to legacy env file (fallback)")
+	sniAddr := fs.String("sni-addr", "127.0.0.1:443", "local SNI proxy listen address")
+	httpAddr := fs.String("http-addr", "127.0.0.1:80", "local HTTP hijack listen address")
 	fs.Parse(args)
 
 	// Step 1: load deployment before elevation so config errors surface as
@@ -42,7 +48,14 @@ func Enable(args []string) error {
 		return fmt.Errorf("mkdir logs: %w", err)
 	}
 
-	// Step 5: render sing-box config.
+	// Step 5: port pre-flight. Do this BEFORE hosts.Install so a conflict
+	// can't black-hole Kiro traffic. On Windows this is the #1 source of
+	// broken installs (IIS / HTTP.SYS / HyperV excludedportrange / Docker).
+	if err := ProbePorts(*sniAddr, *httpAddr); err != nil {
+		return fmt.Errorf("%w\n  hint: netstat -ano | findstr :443 (Windows) or lsof -i :443 (macOS) to find the offender", err)
+	}
+
+	// Step 6: render sing-box config.
 	cfgBytes, err := singbox.Generate(singbox.Options{
 		Deployment: dep,
 		Domains:    config.KiroDomains,
@@ -58,22 +71,32 @@ func Enable(args []string) error {
 		return fmt.Errorf("write sing-box config: %w", err)
 	}
 
-	// Step 6: install hosts block. Done before starting the service so the
-	// first packet already hits our SNI proxy.
+	// Step 7: install hosts block. From here on, any failure rolls hosts back
+	// so the user doesn't end up with DNS locked to a non-running proxy.
 	if err := hosts.Install(config.KiroDomains); err != nil {
 		return fmt.Errorf("install hosts block: %w", err)
 	}
+	rollbackHosts := func(cause error) error {
+		fmt.Fprintf(os.Stderr, "rolling back hosts due to: %v\n", cause)
+		if rbErr := hosts.Uninstall(); rbErr != nil {
+			// If rollback fails we have to surface both errors — the user
+			// needs to know hosts is still mutated.
+			return fmt.Errorf("%w (hosts rollback also failed: %v)", cause, rbErr)
+		}
+		FlushDNS()
+		return cause
+	}
 
-	// Step 7: platform-specific service registration + start.
+	// Step 8: platform-specific service registration + start.
 	self, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("find kiroctl binary: %w", err)
+		return rollbackHosts(fmt.Errorf("find kiroctl binary: %w", err))
 	}
 	if err := InstallService(self, sbPath); err != nil {
-		return fmt.Errorf("install service: %w", err)
+		return rollbackHosts(fmt.Errorf("install service: %w", err))
 	}
 
-	// Step 8: flush DNS so cached answers don't resolve to real IPs.
+	// Step 9: flush DNS so cached answers don't resolve to real IPs.
 	FlushDNS()
 
 	fmt.Printf("✓ kiroctl enabled\n")

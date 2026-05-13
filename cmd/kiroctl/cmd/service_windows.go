@@ -61,7 +61,40 @@ func InstallService(kiroctlPath, singBoxPath string) error {
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
-	return nil
+
+	// mgr.Start() only hands the start request to SCM — it doesn't wait for
+	// the service to actually report Running. Without this poll we'd return
+	// "success" while the service is still StartPending (or has already
+	// failed and is in Stopped with a non-zero exit code).
+	return waitUntilRunning(s, 15*time.Second)
+}
+
+// waitUntilRunning polls the service every 250ms until it reaches Running or
+// definitively fails (Stopped with a win32 exit code). Timeout is bounded so
+// we never hang install/enable forever.
+func waitUntilRunning(s *mgr.Service, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		st, err := s.Query()
+		if err != nil {
+			return fmt.Errorf("query after start: %w", err)
+		}
+		switch st.State {
+		case svc.Running:
+			return nil
+		case svc.Stopped:
+			// If the service hit Execute() and returned an error we'll see
+			// a non-zero Win32ExitCode here.
+			if st.Win32ExitCode != 0 {
+				return fmt.Errorf("service stopped with win32 exit code %d", st.Win32ExitCode)
+			}
+			return fmt.Errorf("service stopped before reaching Running state")
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("service did not reach Running state within %s (last state: %s)", timeout, stateName(st.State))
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // StopService issues Stop and deletes the service entry. Best effort.
