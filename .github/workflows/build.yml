@@ -32,8 +32,23 @@ jobs:
           : > cmd/kiroctl/cmd/embed/sing-box-windows-amd64.exe
           test -f cmd/kiroctl/cmd/embed/sing-box.version || echo 0.0.0 > cmd/kiroctl/cmd/embed/sing-box.version
 
-      - name: Vet
-        run: go vet ./...
+      # kiroctl is macOS + Windows only; vet on the Linux runner would fail
+      # on platform-specific identifiers. Cross-compile covers type-checking
+      # for those targets; vet only the linux-friendly packages explicitly.
+      - name: Vet (linux targets)
+        run: go vet ./pkg/... ./cmd/kiro-admin/...
+
+      - name: Vet (darwin)
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: go vet ./cmd/kiroctl/...
+
+      - name: Vet (windows)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go vet ./cmd/kiroctl/...
 
       - name: Build darwin/arm64
         env:

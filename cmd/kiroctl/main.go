@@ -64,7 +64,7 @@ func mustRun(err error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `kiroctl — force Kiro IDE/CLI traffic through an EC2 hop.
+	fmt.Fprint(os.Stderr, `kiroctl — force Kiro IDE/CLI traffic through an EC2 hop.
 
 Usage:
   kiroctl install      one-shot bootstrap: copy self into /usr/local/bin,
